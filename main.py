@@ -35,6 +35,7 @@ def parse():
                              'only relevant for transfer and representation experiments')
     parser.add_argument('--plot', action='store_true',
                         help='Plot selected experiment for the selected dataset')
+    parser.add_argument('--conditional', action='store_true', help="whether using the conditional loss for training")
     # THIS OPTIONS ARE FOR DEBUG ONLY --- WILL BE REMOVED
     parser.add_argument('-a', action='store_true')
     parser.add_argument('-p', action='store_true')
@@ -138,7 +139,7 @@ def main():
         print('Training an ICE-BeeM on {}'.format(config.data.dataset))
         args.doc = 'transfer'
         make_and_set_dirs(args, config)
-        train(args, config)
+        train(args, config, args.conditional)
 
     if args.transfer and not args.baseline and not args.plot:
         if not args.all:
@@ -170,7 +171,7 @@ def main():
             args.doc = 'transferBaseline'
             args.doc2 = 'size{}_seed{}'.format(args.subset_size, args.seed)
             make_and_set_dirs(args, config)
-            train(args, config)
+            train(args, config, args.conditional)
         else:
             new_args = argparse.Namespace(**vars(args))
             for n in [0, 500, 1000, 2000, 3000, 4000, 5000, 6000]:
@@ -185,7 +186,7 @@ def main():
                     new_args.doc = 'transferBaseline'
                     new_args.doc2 = 'size{}_seed{}'.format(n, seed)
                     make_and_set_dirs(new_args, config)
-                    train(new_args, config)
+                    train(new_args, config, args.conditional)
 
     if args.transfer and args.baseline and not args.plot:
         # update args and config
@@ -203,7 +204,7 @@ def main():
             new_args.doc = 'transferBaseline'
             new_args.doc2 = 'size{}_seed{}'.format(args.subset_size, args.seed)
             make_and_set_dirs(new_args, config)
-            train(new_args, config)
+            train(new_args, config, args.conditional)
         else:
             for n in [0, 500, 1000, 2000, 3000, 4000, 5000, 6000]:
                 for seed in range(args.seed, args.n_sims + args.seed):
@@ -217,7 +218,7 @@ def main():
                     new_args.doc = 'transferBaseline'
                     new_args.doc2 = 'size{}_seed{}'.format(n, seed)
                     make_and_set_dirs(new_args, config)
-                    train(new_args, config)
+                    train(new_args, config, args.conditional)
 
     # PLOTTING TRANSFER LEARNING
     # 1- just use of the flag --plot and --transfer AND NO other flag (except --config of course)

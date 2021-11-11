@@ -10,7 +10,7 @@ training:
   anneal_power: 2.0
 
 data:
-  dataset: "MNIST"
+  dataset: "dSprites"
   image_size: 28
   channels: 1
   logit_transform: false

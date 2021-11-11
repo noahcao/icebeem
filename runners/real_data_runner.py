@@ -22,6 +22,8 @@ from models.ebm import ModularUnnormalizedConditionalEBM, ModularUnnormalizedEBM
 from models.nets import ConvMLP, FullMLP, SimpleLinear
 from models.refinenet_dilated import RefineNetDilated
 
+from data import return_dataset
+
 
 def feature_net(config):
     if config.model.architecture.lower() == 'convmlp':
@@ -86,6 +88,8 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
         dataset = CIFAR10(os.path.join(args.run, 'datasets'), train=not test, download=True, transform=transform)
     elif config.data.dataset.lower().split('_')[0] == 'cifar100':
         dataset = CIFAR100(os.path.join(args.run, 'datasets'), train=not test, download=True, transform=transform)
+    elif config.data.dataset.lower().split('_')[0] == 'dsprites':
+        dataset = return_dataset("dsprites", 'datasets', 64)
     else:
         raise ValueError('Unknown config dataset {}'.format(config.data.dataset))
 
@@ -140,6 +144,7 @@ def train(args, config, conditional=True):
     for epoch in range(config.training.n_epochs):
         loss_track = []
         for i, (X, y) in enumerate(dataloader):
+            import pdb; pdb.set_trace()
             step += 1
             energy_net.train()
             X = X.to(config.device)
