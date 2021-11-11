@@ -2,17 +2,17 @@
 
 training:
   batch_size: 63
-  n_epochs: 500000
+  n_epochs: 50
   n_iters: 5001
   ngpu: 1
-  snapshot_freq: 250
+  snapshot_freq: 500
   algo: 'dsm'
   anneal_power: 2.0
 
 data:
   dataset: "dSprites"
-  image_size: 28
-  channels: 1
+  image_size: 64
+  channels: 3
   logit_transform: false
   random_flip: false
   random_state: 0
@@ -28,7 +28,7 @@ model:
   feature_size: 90
   augment: false
   positive: false
-  architecture: 'ConvMLP'
+  architecture: 'simple'
 
 optim:
   weight_decay: 0.000

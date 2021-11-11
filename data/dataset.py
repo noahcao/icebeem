@@ -105,14 +105,14 @@ class CustomLabeledTensorDataset(Dataset):
         self.values = torch.from_numpy(self.data_tensor['latents_values'])
         self.classes = torch.from_numpy(self.data_tensor['latents_classes'])
         '''
-        self.imgs, self.values, self.classes = data_tensor
+        self.imgs, self.targets, self.classes = data_tensor
         self.indices = range(len(self))
 
        
     def __getitem__(self, index1):
         img1 = self.imgs[index1]
         latent_cls = self.classes[index1]
-        latent_value = self.values[index1]
+        latent_value = self.targets[index1]
         if self.transform is not None:
             img1 = self.transform(img1)
         if img1.shape[0] == 1:
@@ -304,10 +304,10 @@ def return_data(args, mode):
     return data_loader
 
 
-def return_dataset(dataset_name, dset_dir, img_size):
-    print("Loading {} dataset".format(dataset_name))
+def return_dataset(name, dset_dir, img_size):
+    print("Loading {} dataset".format(name))
 
-    if dataset_name.lower() == "dsprites":
+    if name.lower() == "dsprites":
         root = os.path.join(dset_dir, 'dsprites/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz')
         data = np.load(root, encoding='latin1')
         imgs = torch.from_numpy(data['imgs']).unsqueeze(1).float()
@@ -317,6 +317,46 @@ def return_dataset(dataset_name, dset_dir, img_size):
         data = (imgs, values, classes)
         train_kwargs = {'data_tensor':data}
         dset = CustomLabeledTensorDataset
+    elif name.lower() == "smallnorb":
+        root = os.path.join(dset_dir, "smallnorb")
+        train_kwargs = {"root": root}
+        dset = SmallNORB
+    elif name.lower() == "cars3d":
+        root = os.path.join(dset_dir, "cars")
+        train_kwargs = {"root": root}
+        dset = Cars3D
+    elif name.lower() == "3dshapes":
+        root = os.path.join(dset_dir, "3dshapes/3dshapes.h5")
+        data = h5py.File(root)
+
+        splited = np.load(os.path.join(dset_dir, "3dshapes/split.npz"))
+
+        images = torch.from_numpy(np.array(data["images"][:]))
+        labels = torch.from_numpy(np.array(data["labels"][:]))
+
+        if mode == "train":
+            train_indices = splited["train"]
+            images = images[train_indices]
+            labels = labels[train_indices]
+        elif mode == "valid":
+            valid_indices = splited["valid"]
+            images = images[valid_indices]
+            labels = labels[valid_indices]
+
+        images = torch.transpose(images, 1, 3)
+        images = torch.transpose(images, 2, 3)
+        images = images / 255.0
+
+        # the last factor - orientation: 15 values linearly spaced in [-30, 30]
+        # we make them into int: 0-14
+        labels[:, -1] = (labels[:, -1] + 30) / (60.0/14.0)
+        data = (images, labels)
+
+        train_kwargs = {'data': data, 'transform': transforms3D}
+        dset = Custom3DshapesDataset
+    else:
+        NotImplementedError("dataset {} not implemented yet".format(name))
+    
     
 
     dataset = dset(**train_kwargs)

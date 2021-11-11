@@ -19,7 +19,7 @@ from data.utils import single_one_hot_encode, single_one_hot_encode_rev
 from losses.dsm import dsm, cdsm
 from metrics.mcc import mean_corr_coef, mean_corr_coef_out_of_sample
 from models.ebm import ModularUnnormalizedConditionalEBM, ModularUnnormalizedEBM
-from models.nets import ConvMLP, FullMLP, SimpleLinear
+from models.nets import ConvMLP, FullMLP, SimpleLinear, SimpleEncoder
 from models.refinenet_dilated import RefineNetDilated
 
 from data import return_dataset
@@ -32,6 +32,9 @@ def feature_net(config):
         return FullMLP(config)
     elif config.model.architecture.lower() == 'unet':
         return RefineNetDilated(config)
+    elif config.model.architecture == "simple":
+        # follow the default encoder we use for other datasets 
+        return SimpleEncoder(config)
 
 
 def get_optimizer(config, parameters):
@@ -54,6 +57,7 @@ def logit_transform(image, lam=1e-6):
 def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False, shuffle=True):
     total_labels = 10 if config.data.dataset.lower().split('_')[0] != 'cifar100' else 100
     reduce_labels = total_labels != config.n_labels
+
     if config.data.dataset.lower() in ['mnist_transferbaseline', 'cifar10_transferbaseline',
                                        'fashionmnist_transferbaseline', 'cifar100_transferbaseline']:
         print('loading baseline transfer dataset')
@@ -93,6 +97,7 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
     else:
         raise ValueError('Unknown config dataset {}'.format(config.data.dataset))
 
+
     if type(dataset.targets) is list:
         # CIFAR10 and CIFAR100 store targets as list, unlike (F)MNIST which uses torch.Tensor
         dataset.targets = np.array(dataset.targets)
@@ -107,14 +112,17 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
         target_transform = lambda label: single_one_hot_encode_rev(label, start_label=config.n_labels,
                                                                    n_labels=total_labels)
         cond_size = total_labels - config.n_labels
-    if reduce_labels:
-        idx = np.any([np.array(dataset.targets) == i for i in labels_to_consider], axis=0).nonzero()
-        dataset.targets = dataset.targets[idx]
-        dataset.data = dataset.data[idx]
-    if one_hot:
-        dataset.target_transform = target_transform
-    if subset and args.subset_size != 0:
-        dataset = torch.utils.data.Subset(dataset, np.arange(args.subset_size))
+    if config.data.dataset.lower() == "dsprites":
+        pass 
+    else:
+        if reduce_labels:
+            idx = np.any([np.array(dataset.targets) == i for i in labels_to_consider], axis=0).nonzero()
+            dataset.targets = dataset.targets[idx]
+            dataset.data = dataset.data[idx]
+        if one_hot:
+            dataset.target_transform = target_transform
+        if subset and args.subset_size != 0:
+            dataset = torch.utils.data.Subset(dataset, np.arange(args.subset_size))
     dataloader = DataLoader(dataset, batch_size=config.training.batch_size, shuffle=shuffle, num_workers=0)
 
     return dataloader, dataset, cond_size
@@ -127,6 +135,7 @@ def train(args, config, conditional=True):
     # load dataset
     dataloader, dataset, cond_size = get_dataset(args, config, one_hot=True)
     # define the energy model
+    
     if conditional:
         f = feature_net(config).to(config.device)
         g = SimpleLinear(cond_size, f.output_size, bias=False).to(config.device)
@@ -144,7 +153,6 @@ def train(args, config, conditional=True):
     for epoch in range(config.training.n_epochs):
         loss_track = []
         for i, (X, y) in enumerate(dataloader):
-            import pdb; pdb.set_trace()
             step += 1
             energy_net.train()
             X = X.to(config.device)
@@ -164,24 +172,12 @@ def train(args, config, conditional=True):
             loss_track.append(loss.item())
             loss_track_epochs.append(loss.item())
 
-            if step >= config.training.n_iters and save_weights:
-                enet, energy_net_finalLayer = energy_net.f, energy_net.g
-                # save final checkpoints for distribution!
-                states = [
-                    enet.state_dict(),
-                    optimizer.state_dict(),
-                ]
-                print('saving weights under: {}'.format(args.checkpoints))
-                # torch.save(states, os.path.join(args.checkpoints, 'checkpoint_{}.pth'.format(step)))
-                torch.save(states, os.path.join(args.checkpoints, 'checkpoint.pth'))
-                torch.save([energy_net_finalLayer], os.path.join(args.checkpoints, 'finalLayerweights_.pth'))
-                pickle.dump(energy_net_finalLayer,
-                            open(os.path.join(args.checkpoints, 'finalLayerweights.p'), 'wb'))
-                return 0
+            if i % 100 == 0:
+                print("{} - {} | loss = {}".format(epoch, i, loss.item()))
 
-            if step % config.training.snapshot_freq == 0:
-                enet, energy_net_finalLayer = energy_net.f, energy_net.g
-                print('checkpoint at step: {}'.format(step))
+            # if step % config.training.snapshot_freq == 0:
+            #     enet, energy_net_finalLayer = energy_net.f, energy_net.g
+            #     print('checkpoint at step: {}'.format(step))
                 # save checkpoint for transfer learning! !
                 # torch.save([energy_net_finalLayer], os.path.join(args.log, 'finalLayerweights_.pth'))
                 # pickle.dump(energy_net_finalLayer,
@@ -192,6 +188,21 @@ def train(args, config, conditional=True):
                 # ]
                 # torch.save(states, os.path.join(args.log, 'checkpoint_{}.pth'.format(step)))
                 # torch.save(states, os.path.join(args.log, 'checkpoint.pth'))
+        if save_weights:
+            # save at the end of epoch
+            enet, energy_net_finalLayer = energy_net.f, energy_net.g
+            # save final checkpoints for distribution!
+            states = [
+                enet.state_dict(),
+                optimizer.state_dict(),
+            ]
+            print('Epoch -{} | saving weights under: {}'.format(epoch, args.checkpoints))
+            # torch.save(states, os.path.join(args.checkpoints, 'checkpoint_{}.pth'.format(step)))
+            torch.save(states, os.path.join(args.checkpoints, 'checkpoint_{}.pth').format(epoch))
+            torch.save([energy_net_finalLayer], os.path.join(args.checkpoints, 'finalLayerweights_{}.pth'.format(epoch)))
+            pickle.dump(energy_net_finalLayer,
+                        open(os.path.join(args.checkpoints, 'finalLayerweights_{}.p'.format(epoch)), 'wb'))
+            
 
         if config.data.dataset.lower() in ['mnist_transferbaseline', 'cifar10_transferbaseline',
                                            'fashionmnist_transferbaseline', 'cifar100_transferbaseline']:

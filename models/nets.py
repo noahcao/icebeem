@@ -1,6 +1,30 @@
 import torch
 import torch.nn.functional as F
+import torch.nn.init as init
 from torch import nn
+from abc import ABCMeta, abstractmethod
+
+# helper functions
+def kaiming_init(m):
+    if isinstance(m, (nn.Linear, nn.Conv2d)):
+        init.kaiming_normal_(m.weight)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+    elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+        m.weight.data.fill_(1)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+
+
+def normal_init(m):
+    if isinstance(m, (nn.Linear, nn.Conv2d)):
+        init.normal_(m.weight, 0, 0.02)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+    elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+        m.weight.data.fill_(1)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
 
 
 class smoothReLU(nn.Module):
@@ -271,3 +295,74 @@ class ConvMLP(nn.Module):
         h = self.conv(x).squeeze()
         output = self.linear(h)
         return output
+
+# main class
+class EncoderTemplate(nn.Module):
+    # encoder for 2d Shapes data, one dimension input 
+    @abstractmethod
+    def __init__(self, z_dim=10, mode="normal"):
+        super(EncoderTemplate, self).__init__()
+        pass
+
+    def weight_init(self, mode='normal'):
+        if mode == 'kaiming':
+            initializer = kaiming_init
+        elif mode == 'normal':
+            initializer = normal_init
+
+        for block in self._modules:
+            for m in self._modules[block]:
+                initializer(m)
+
+    def forward(self, x):
+        stats = self.encode(x)
+        return stats
+
+
+class EncoderGN(EncoderTemplate):
+    def __init__(self, z_dim, mode):
+        super(EncoderGN, self).__init__()
+        self.z_dim = z_dim
+        self.encode = nn.Sequential(
+            nn.Conv2d(3, 32, 4, 2, 1),
+            nn.ReLU(inplace=False),
+            nn.GroupNorm(4, 32),
+            nn.Conv2d(32, 32, 4, 2, 1),
+            nn.ReLU(inplace=False),
+            nn.GroupNorm(4, 32),
+            nn.Conv2d(32, 64, 4, 2, 1),
+            nn.ReLU(inplace=False),
+            nn.GroupNorm(4, 64),
+            nn.Conv2d(64, 64, 4, 2, 1),
+            nn.ReLU(inplace=False),
+            nn.GroupNorm(4, 64),
+            nn.Conv2d(64, 128, 4, 1),
+            nn.ReLU(inplace=False),
+            nn.GroupNorm(4, 128),
+            nn.Conv2d(128, z_dim, 1),
+            nn.GroupNorm(4, z_dim)
+        )
+        self.weight_init(mode)
+
+
+class SimpleEncoder(nn.Module):
+    def __init__(self, config):
+        super(SimpleEncoder, self).__init__()
+        self.encode = EncoderGN(1024, "normal")
+        ngf = 1024 // 4
+        self.input_size = config.data.image_size ** 2 * config.data.channels
+        self.output_size = self.input_size
+        self.linear = nn.Sequential(
+            nn.Dropout(p=0.1),
+            nn.Linear(ngf * 4, ngf * 4),
+            # nn.LeakyReLU(inplace=True, negative_slope=.1),
+            # nn.Linear(ngf * 2, ngf * 2),
+            nn.LeakyReLU(inplace=True, negative_slope=.1),
+            nn.Linear(ngf * 4, self.output_size)
+        )
+
+    def forward(self, x):
+        h = self.encode(x).squeeze()
+        output = self.linear(h)
+        return output
+    
