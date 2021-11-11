@@ -55,7 +55,8 @@ def logit_transform(image, lam=1e-6):
 
 
 def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False, shuffle=True):
-    total_labels = 10 if config.data.dataset.lower().split('_')[0] != 'cifar100' else 100
+    dataset_name = config.data.dataset.lower().split('_')[0]
+    total_labels = 10 if dataset_name != 'cifar100' else 100
     reduce_labels = total_labels != config.n_labels
 
     if config.data.dataset.lower() in ['mnist_transferbaseline', 'cifar10_transferbaseline',
@@ -84,16 +85,16 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
                 transforms.ToTensor()
             ])
 
-    if config.data.dataset.lower().split('_')[0] == 'mnist':
+    if dataset_name == 'mnist':
         dataset = MNIST(os.path.join(args.run, 'datasets'), train=not test, download=True, transform=transform)
-    elif config.data.dataset.lower().split('_')[0] in ['fashionmnist', 'fmnist']:
+    elif dataset_name in ['fashionmnist', 'fmnist']:
         dataset = FashionMNIST(os.path.join(args.run, 'datasets'), train=not test, download=True, transform=transform)
-    elif config.data.dataset.lower().split('_')[0] == 'cifar10':
+    elif dataset_name == 'cifar10':
         dataset = CIFAR10(os.path.join(args.run, 'datasets'), train=not test, download=True, transform=transform)
-    elif config.data.dataset.lower().split('_')[0] == 'cifar100':
+    elif dataset_name == 'cifar100':
         dataset = CIFAR100(os.path.join(args.run, 'datasets'), train=not test, download=True, transform=transform)
-    elif config.data.dataset.lower().split('_')[0] == 'dsprites':
-        dataset = return_dataset("dsprites", 'datasets', 64)
+    elif dataset_name in ['dsprites', '3dshapes', 'cars3d', 'smallnorb']:
+        dataset = return_dataset(dataset_name, 'datasets', 64)
     else:
         raise ValueError('Unknown config dataset {}'.format(config.data.dataset))
 
@@ -112,7 +113,7 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
         target_transform = lambda label: single_one_hot_encode_rev(label, start_label=config.n_labels,
                                                                    n_labels=total_labels)
         cond_size = total_labels - config.n_labels
-    if config.data.dataset.lower() == "dsprites":
+    if config.data.dataset.lower() in ["dsprites", 'smallnorb', '3dshapes', 'cars3d']:
         pass 
     else:
         if reduce_labels:
@@ -157,6 +158,7 @@ def train(args, config, conditional=True):
             energy_net.train()
             X = X.to(config.device)
             X = X / 256. * 255. + torch.rand_like(X) / 256.
+            
             if config.data.logit_transform:
                 X = logit_transform(X)
             # compute loss

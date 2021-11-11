@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision import transforms
-# from .smallnorb import SmallNORB
+from .smallnorb import SmallNORB
 # from .cars3d import Cars3D
 import h5py
 
@@ -79,13 +79,13 @@ class Custom3DshapesDataset(Dataset):
         orientation: 15 values linearly spaced in [-30, 30]
     '''
     def __init__(self, data, transform=None):
-        self.imgs, self.labels = data 
+        self.imgs, self.targets = data 
         self.transform = transform
         self.indices = range(len(self))
 
     def __getitem__(self, index1):
         img = self.imgs[index1]
-        label = self.labels[index1]
+        label = self.targets[index1]
         if self.transform is not None:
             img = self.transform(img)
         return (img, label)
@@ -333,6 +333,8 @@ def return_dataset(name, dset_dir, img_size):
 
         images = torch.from_numpy(np.array(data["images"][:]))
         labels = torch.from_numpy(np.array(data["labels"][:]))
+        
+        mode = "train"
 
         if mode == "train":
             train_indices = splited["train"]
@@ -352,7 +354,7 @@ def return_dataset(name, dset_dir, img_size):
         labels[:, -1] = (labels[:, -1] + 30) / (60.0/14.0)
         data = (images, labels)
 
-        train_kwargs = {'data': data, 'transform': transforms3D}
+        train_kwargs = {'data': data}
         dset = Custom3DshapesDataset
     else:
         NotImplementedError("dataset {} not implemented yet".format(name))

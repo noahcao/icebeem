@@ -2,19 +2,19 @@
 
 training:
   batch_size: 63
-  n_epochs: 500000
+  n_epochs: 50
   n_iters: 5001
   ngpu: 1
-  snapshot_freq: 250
+  snapshot_freq: 500
   algo: 'dsm'
   anneal_power: 2.0
 
 data:
-  dataset: "MNIST"
-  image_size: 28
-  channels: 1
+  dataset: "smallnorb"
+  image_size: 64
+  channels: 3
   logit_transform: false
-  random_flip: false
+  random_flip: true
   random_state: 0
   split_size: .15
 
@@ -28,7 +28,7 @@ model:
   feature_size: 90
   augment: false
   positive: false
-  architecture: 'unet'
+  architecture: 'simple'
 
 optim:
   weight_decay: 0.000
