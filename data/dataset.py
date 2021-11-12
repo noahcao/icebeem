@@ -9,7 +9,6 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.datasets import ImageFolder
 from torchvision import transforms
 from .smallnorb import SmallNORB
-# from .cars3d import Cars3D
 import h5py
 
 
@@ -322,6 +321,7 @@ def return_dataset(name, dset_dir, img_size):
         train_kwargs = {"root": root}
         dset = SmallNORB
     elif name.lower() == "cars3d":
+        from .cars3d import Cars3D
         root = os.path.join(dset_dir, "cars")
         train_kwargs = {"root": root}
         dset = Cars3D

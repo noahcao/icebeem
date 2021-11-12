@@ -99,7 +99,9 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
         raise ValueError('Unknown config dataset {}'.format(config.data.dataset))
 
 
-    if type(dataset.targets) is list:
+    if dataset_name == "cars3d":
+        pass
+    elif type(dataset.targets) is list:
         # CIFAR10 and CIFAR100 store targets as list, unlike (F)MNIST which uses torch.Tensor
         dataset.targets = np.array(dataset.targets)
 
@@ -124,6 +126,9 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
             dataset.target_transform = target_transform
         if subset and args.subset_size != 0:
             dataset = torch.utils.data.Subset(dataset, np.arange(args.subset_size))
+    
+    if dataset_name == "cars3d":
+        shuffle=False
     dataloader = DataLoader(dataset, batch_size=config.training.batch_size, shuffle=shuffle, num_workers=0)
 
     return dataloader, dataset, cond_size
@@ -190,7 +195,8 @@ def train(args, config, conditional=True):
                 # ]
                 # torch.save(states, os.path.join(args.log, 'checkpoint_{}.pth'.format(step)))
                 # torch.save(states, os.path.join(args.log, 'checkpoint.pth'))
-        if save_weights:
+    
+        if save_weights and epoch % 10 == 0:
             # save at the end of epoch
             enet, energy_net_finalLayer = energy_net.f, energy_net.g
             # save final checkpoints for distribution!
