@@ -128,8 +128,12 @@ class Cars3D(data.Dataset):
     images = self.dataset.sample_observations_from_factors(factors, self.random_state)
     factors = torch.Tensor(factors).squeeze(0)
     images = torch.Tensor(images)
-    images = torch.transpose(images, 1, 3).squeeze(0)
+    # images = torch.transpose(images, 1, 3)
+    # images = torch.transpose(images, 2, 3).squeeze()
+    images = images.squeeze().permute(2,0,1)
     images = self.transform(images)
+    
+    # print(images.max(), images.min())
     return images, factors
 
   def __len__(self):
@@ -142,12 +146,11 @@ class Cars3D(data.Dataset):
     return self.dataset.images.shape[0]
 
   def data_transforms(self):
-      normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
+      # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+      #                            std=[0.229, 0.224, 0.225])
       transform = transforms.Compose([transforms.RandomHorizontalFlip(),
-                                          transforms.CenterCrop(40),
-                                          transforms.Resize(64),
-                                          normalize])
+                                          # transforms.CenterCrop(40),
+                                          transforms.Resize(64)])
       return transform
 
   

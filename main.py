@@ -16,7 +16,7 @@ def parse():
     parser.add_argument('--config', type=str, default='mnist.yaml', help='Path to the config file')
     parser.add_argument('--run', type=str, default='run', help='Path for saving running related data.')
     parser.add_argument('--n-sims', type=int, default=0, help='Number of simulations to run')
-    parser.add_argument('--seed', type=int, default=0, help='Random seed')
+    parser.add_argument('--seed', type=int, default=1, help='Random seed')
     parser.add_argument('--baseline', action='store_true', help='Run the script for the baseline')
     parser.add_argument('--transfer', action='store_true',
                         help='Run the transfer learning experiments after pretraining')
@@ -79,7 +79,7 @@ def make_and_set_dirs(args, config):
     os.makedirs(args.run, exist_ok=True)
     args.log = os.path.join(args.run, 'logs', args.doc2)
     os.makedirs(args.log, exist_ok=True)
-    args.checkpoints = os.path.join(args.run, 'checkpoints', args.doc2)
+    args.checkpoints = os.path.join(args.run, 'checkpoints', args.doc2, "dim10_new_{}".format(args.seed))
     os.makedirs(args.checkpoints, exist_ok=True)
     args.output = os.path.join(args.run, 'output', args.doc)
     os.makedirs(args.output, exist_ok=True)

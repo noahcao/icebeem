@@ -127,7 +127,7 @@ def get_dataset(args, config, test=False, rev=False, one_hot=True, subset=False,
         if subset and args.subset_size != 0:
             dataset = torch.utils.data.Subset(dataset, np.arange(args.subset_size))
     
-    if dataset_name == "cars3d":
+    if dataset_name == "cars3d" or dataset_name == "smallnorb":
         shuffle=False
     dataloader = DataLoader(dataset, batch_size=config.training.batch_size, shuffle=shuffle, num_workers=0)
 

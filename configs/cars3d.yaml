@@ -22,7 +22,7 @@ model:
   sigma_begin: 1
   sigma_end: 0.01
   num_classes: 10
-  batch_norm: false
+  batch_norm: true
   ngf: 64
   final_layer: true
   feature_size: 90

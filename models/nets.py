@@ -319,28 +319,50 @@ class EncoderTemplate(nn.Module):
         return stats
 
 
+class View(nn.Module):
+    def __init__(self, size):
+        super(View, self).__init__()
+        self.size = size
+
+    def forward(self, tensor):
+        return tensor.view(self.size)
+
 class EncoderGN(EncoderTemplate):
-    def __init__(self, z_dim, mode):
+    def __init__(self, z_dim, nc, mode):
         super(EncoderGN, self).__init__()
         self.z_dim = z_dim
+        # self.encode = nn.Sequential(
+        #     nn.Conv2d(3, 32, 4, 2, 1),
+        #     nn.ReLU(inplace=False),
+        #     nn.GroupNorm(4, 32),
+        #     nn.Conv2d(32, 32, 4, 2, 1),
+        #     nn.ReLU(inplace=False),
+        #     nn.GroupNorm(4, 32),
+        #     nn.Conv2d(32, 64, 4, 2, 1),
+        #     nn.ReLU(inplace=False),
+        #     nn.GroupNorm(4, 64),
+        #     nn.Conv2d(64, 64, 4, 2, 1),
+        #     nn.ReLU(inplace=False),
+        #     nn.GroupNorm(4, 64),
+        #     nn.Conv2d(64, 128, 4, 1),
+        #     nn.ReLU(inplace=False),
+        #     nn.GroupNorm(4, 128),
+        #     nn.Conv2d(128, z_dim, 1),
+        #     nn.GroupNorm(4, z_dim)
+        # )
         self.encode = nn.Sequential(
-            nn.Conv2d(3, 32, 4, 2, 1),
-            nn.ReLU(inplace=False),
-            nn.GroupNorm(4, 32),
-            nn.Conv2d(32, 32, 4, 2, 1),
-            nn.ReLU(inplace=False),
-            nn.GroupNorm(4, 32),
-            nn.Conv2d(32, 64, 4, 2, 1),
-            nn.ReLU(inplace=False),
-            nn.GroupNorm(4, 64),
-            nn.Conv2d(64, 64, 4, 2, 1),
-            nn.ReLU(inplace=False),
-            nn.GroupNorm(4, 64),
-            nn.Conv2d(64, 128, 4, 1),
-            nn.ReLU(inplace=False),
-            nn.GroupNorm(4, 128),
-            nn.Conv2d(128, z_dim, 1),
-            nn.GroupNorm(4, z_dim)
+            nn.Conv2d(nc, 32, 4, 2, 1),          # B,  32, 32, 32
+            nn.ReLU(True),
+            nn.Conv2d(32, 32, 4, 2, 1),          # B,  32, 16, 16
+            nn.ReLU(True),
+            nn.Conv2d(32, 64, 4, 2, 1),          # B,  64,  8,  8
+            nn.ReLU(True),
+            nn.Conv2d(64, 64, 4, 2, 1),          # B,  64,  4,  4
+            nn.ReLU(True),
+            nn.Conv2d(64, 256, 4, 1),            # B, 256,  1,  1
+            nn.ReLU(True),
+            View((-1, 256*1*1)),                 # B, 256
+            nn.Linear(256, z_dim*2),             # B, z_dim*2
         )
         self.weight_init(mode)
 
@@ -348,12 +370,13 @@ class EncoderGN(EncoderTemplate):
 class SimpleEncoder(nn.Module):
     def __init__(self, config):
         super(SimpleEncoder, self).__init__()
-        self.encode = EncoderGN(1024, "normal")
-        ngf = 1024 // 4
+        self.encode = EncoderGN(10, config.data.channels, "normal")
+        ngf = 20 // 4
         self.input_size = config.data.image_size ** 2 * config.data.channels
         self.output_size = self.input_size
         self.linear = nn.Sequential(
             nn.Dropout(p=0.1),
+            # nn.Linear(ngf * 4, ngf * 4),
             nn.Linear(ngf * 4, ngf * 4),
             # nn.LeakyReLU(inplace=True, negative_slope=.1),
             # nn.Linear(ngf * 2, ngf * 2),

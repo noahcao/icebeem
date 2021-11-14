@@ -50,11 +50,80 @@ import torch
 from torchvision import models, transforms
 import sys 
 import random 
-# from absl import logging
-# from six.moves import range
+from disentanglement_lib.data.ground_truth import ground_truth_data
+from disentanglement_lib.data.ground_truth import util
+from six.moves import range
+import tensorflow.compat.v1 as tf
 from torchvision.models import resnet50
 import torch.nn as nn
-from disentanglement_lib.evaluation.metrics import mig, beta_vae, factor_vae, sap_score
+from disentanglement_lib.evaluation.metrics import mig, beta_vae, factor_vae, sap_score, dci
+import h5py
+
+
+# issue https://github.com/google-research/disentanglement_lib/issues/18 for the reference 
+# of customizing the 3dshapes dataset definition
+SHAPES3D_PATH = os.path.join(
+    os.environ.get("DISENTANGLEMENT_LIB_DATA", "."), "3dshapes", "3dshapes.h5"
+)
+
+
+class Shapes3D(ground_truth_data.GroundTruthData):
+  """Shapes3D dataset.
+  The data set was originally introduced in "Disentangling by Factorising".
+  The ground-truth factors of variation are:
+  0 - floor color (10 different values)
+  1 - wall color (10 different values)
+  2 - object color (10 different values)
+  3 - object size (8 different values)
+  4 - object type (4 different values)
+  5 - azimuth (15 different values)
+  """
+
+  def __init__(self):
+    # with tf.gfile.GFile(SHAPES3D_PATH, "rb") as f:
+    #   # Data was saved originally using python2, so we need to set the encoding.
+    #   data = np.load(f, encoding="latin1")
+    # images = data["images"]
+    # labels = data["labels"]
+    # n_samples = np.prod(images.shape[0:6])
+    with h5py.File(SHAPES3D_PATH, 'r') as dataset:
+      images = dataset['images'][()]
+      labels = dataset['labels'][()]
+      n_samples = images.shape[0]
+
+    self.images = (
+        images.reshape([n_samples, 64, 64, 3]).astype(np.float32) / 255.)
+    features = labels.reshape([n_samples, 6])
+    self.factor_sizes = [10, 10, 10, 8, 4, 15]
+    self.latent_factor_indices = list(range(6))
+    self.num_total_factors = features.shape[1]
+    self.state_space = util.SplitDiscreteStateSpace(self.factor_sizes,
+                                                    self.latent_factor_indices)
+    self.factor_bases = np.prod(self.factor_sizes) / np.cumprod(
+        self.factor_sizes)
+
+  @property
+  def num_factors(self):
+    return self.state_space.num_latent_factors
+
+  @property
+  def factors_num_values(self):
+    return self.factor_sizes
+
+  @property
+  def observation_shape(self):
+    return [64, 64, 3]
+
+
+  def sample_factors(self, num, random_state):
+    """Sample a batch of factors Y."""
+    return self.state_space.sample_latent_factors(num, random_state)
+
+  def sample_observations_from_factors(self, factors, random_state):
+    all_factors = self.state_space.sample_all_factors(factors, random_state)
+    indices = np.array(np.dot(all_factors, self.factor_bases), dtype=np.int64)
+    return self.images[indices]
+
 
 
 ### This part is for ICE-BeeM ######
@@ -84,7 +153,8 @@ def evaluate_disentanglement(model_dir,
              batch_size=64,
              z_dim=50,
              tag="",
-             config=None
+             config=None,
+             dataset=None
              ):
     """Loads a representation TFHub module and computes disentanglement metrics.
 
@@ -113,7 +183,7 @@ def evaluate_disentanglement(model_dir,
         data = torch.from_numpy(data)
         if data.shape[1:] == (64, 64, 1):
           data = torch.permute(data, (0,3,1,2))
-          data = data.repeat([1, 3, 1, 1])
+          # data = data.repeat([1, 3, 1, 1])
         elif data.shape[1:] == (64, 64, 3):
           data = torch.permute(data, (0,3,1,2))
         if torch.cuda.is_available():
@@ -124,10 +194,19 @@ def evaluate_disentanglement(model_dir,
     
     dataset_name = config.data.dataset
     
-    epoch_to_eval = [20, 30, 40]
+    if dataset_name.lower() == "dsprites":
+      epoch_to_eval = [30]
+    elif dataset_name.lower() == "smallnorb":
+      epoch_to_eval = [20, 40, 60, 80, 100, 120, 140, 160]
+    elif dataset_name.lower() == "cars3d":
+      epoch_to_eval = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900]
+    elif dataset_name.lower() == "3dshapes":
+      epoch_to_eval = [100]
+
     for epoch in epoch_to_eval:
-        print("----- epoch = {} ------".format(epoch))
-        checkpoint_path = "run/checkpoints/{}/{}/checkpoint_{}.pth".format(dataset_name, tag, epoch)
+        print("----- epoch = {} | metric = {} | dataset = {} | trial = {} ------".format(epoch, config.metric, dataset_name,  config.trial_name))
+        checkpoint_path = "run/checkpoints/{}/{}/{}/checkpoint_{}.pth".format(dataset_name, tag, config.trial_name, epoch)
+        print("Load checkpoint from ", checkpoint_path)
         state_dict = torch.load(checkpoint_path)
         weights, optimizer = state_dict
         model_all.load_state_dict(weights)
@@ -146,19 +225,48 @@ def evaluate_disentanglement(model_dir,
           def _identity_discretizer(target, num_bins):
             del num_bins
             return target
-          gin.bind_parameter("discretizer.discretizer_fn", _identity_discretizer)
-          gin.bind_parameter("discretizer.num_bins", 10)
-          scores = mig.compute_mig(dataset, model_representation, np.random.RandomState(0), None, 3000)
+
+          def _histogram_discretize(target, num_bins):
+            """Discretization based on histograms."""
+            discretized = np.zeros_like(target)
+            for i in range(target.shape[0]):
+              discretized[i, :] = np.digitize(target[i, :], np.histogram(
+                  target[i, :], num_bins)[1][:-1])
+            return discretized
+          # gin_bindings = [
+          #     # "evaluation.evaluation_fn = @mig",
+          #     # "evaluation.random_seed = 0",
+          #     "mig.num_train=10000",
+          #     "discretizer.discretizer_fn = @histogram_discretizer",
+          #     "discretizer.num_bins = 20"
+          # ]
+          # if gin_config_files is None:
+          # gin_config_files = []
+          # if gin_bindings is None:
+          #   gin_bindings = []
+          # gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
+          gin.bind_parameter("discretizer.discretizer_fn",  _histogram_discretize)
+          gin.bind_parameter("discretizer.num_bins", 20)
+          # gin.bind_parameter(gin_bindings)
+          scores = mig.compute_mig(dataset, model_representation, np.random.RandomState(0), None, num_train=10000, batch_size=16)
         elif config.metric == "sap":
-          scores = sap_score.compute_sap(dataset, model_representation, np.random.RandomState(0), None, 3000,
-            3000, continuous_factors=True)
+          scores = sap_score.compute_sap(dataset, model_representation, np.random.RandomState(0), None, num_train=10000,
+            num_test=16, continuous_factors=True)
         elif config.metric == "dci":
-          scores = dci.compute_dci(dataset, model_representation, np.random.RandomState(0), None, 1000,
-            1000)
-          scoers = scores["disentanglement"]
+          scores = dci.compute_dci(dataset, model_representation, np.random.RandomState(0), None, num_train=10000, num_test=5000)
+          scores = scores["disentanglement"]
         else:
           NotImplementedError("metric not supported yet")
         print(scores)
+        with open("{}_eval_log.txt".format(dataset_name), 'a') as f:
+          f.write("------------- Trial {} -----------\n".format(config.trial_name))
+          f.write("------------- {} --------------\n".format(config.metric))
+          if config.metric == "dci":
+            f.write("{}\n".format(scores))
+          else:
+            for k, v in scores.items():
+              f.write("{}: {}\n".format(k, v))
+          f.flush()
 
 
 def _has_kwarg_or_kwargs(f, kwarg):
@@ -170,39 +278,6 @@ def _has_kwarg_or_kwargs(f, kwarg):
     if kwarg in args or kwargs is not None:
       return True
     return False
-
-
-# def evaluate_with_gin_new(model_dir,
-#                       output_dir,
-#                       overwrite=False,
-#                       gin_config_files=None,
-#                       gin_bindings=None,
-#                       image_size=64,
-#                       batch_size=64,
-#                       gamma=0.1,
-#                       z_dim=50,
-#                       tag="",
-#                       config=None):
-#   """Evaluate a representation based on the provided gin configuration.
-
-#   This function will set the provided gin bindings, call the evaluate()
-#   function and clear the gin config. Please see the evaluate() for required
-#   gin bindings.
-
-#   Args:
-#     model_dir: String with path to directory where the representation is saved.
-#     output_dir: String with the path where the evaluation should be saved.
-#     overwrite: Boolean indicating whether to overwrite output directory.
-#     gin_config_files: List of gin config files to load.
-#     gin_bindings: List of gin bindings to use.
-#   """
-#   if gin_config_files is None:
-#     gin_config_files = []
-#   if gin_bindings is None:
-#     gin_bindings = []
-#   # gin.parse_config_files_and_bindings(gin_config_files, gin_bindings)
-#   evaluate_new(model_dir, output_dir, overwrite,image_size=image_size,
-#             batch_size=batch_size,gamma=gamma,z_dim=z_dim,tag=tag,config=config)
 
 
 def seed_torch(seed=0):
@@ -217,10 +292,11 @@ def seed_torch(seed=0):
     torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.enabled = False
 
+
 def parse():
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--config', type=str, default='mnist.yaml', help='Path to the config file')
-    parser.add_argument('--metric', type=str, required=True)
+    parser.add_argument('--metric', type=str)
     args = parser.parse_args()
     return args
 
@@ -236,8 +312,7 @@ def dict2namespace(config):
     return namespace
 
 
-if __name__ == "__main__":
-    args = parse()
+def main(args):
     with open(os.path.join('configs', args.config), 'r') as f:
         print('loading config file: {}'.format(os.path.join('configs', args.config)))
         config_raw = yaml.load(f, Loader=yaml.FullLoader)
@@ -252,30 +327,49 @@ if __name__ == "__main__":
     seed_torch(0)
 
     # dataset_name = args['DATALOADER']["dataset"]
-    if dataset_name == "3dshapes":
-        from datasets.shapes3d import Shapes3D
+    if dataset_name.lower() == "3dshapes":
+        # from datasets.shapes3d import Shapes3D
+        # dataset = Shapes3D()
+        # from disentanglement_lib.data.ground_truth import shapes3d
         dataset = Shapes3D()
-    elif dataset_name == "coco":
-        from datasets.coco import NewCOCO
-        dataset = NewCOCO()
-    elif dataset_name == "celeba":
-        from datasets.celeba import NewCelebA
-        exp = {"dataset":"celeba", "data_path": "data", "img_size": args["MODEL"]["image_size"], "batch_size": args["DATALOADER"]["batch_size"]}
-        dataset = NewCelebA(exp, mode="test")
+    elif dataset_name.lower() == "smallnorb":
+        SMALLNORB_TEMPLATE = os.path.join(
+            os.environ.get("DISENTANGLEMENT_LIB_DATA", "."), "smallnorb", "raw"
+            "smallnorb-{}-{}.mat")
+
+        SMALLNORB_CHUNKS = [
+            "5x46789x9x18x6x2x96x96-training",
+            "5x01235x9x18x6x2x96x96-testing",
+        ]
+        from disentanglement_lib.data.ground_truth import norb
+        dataset = norb.SmallNORB() 
+    elif dataset_name.lower() == "cars3d":
+        # from disentanglement_lib.data.ground_truth import cars3d
+        from data.cars3d import Cars3D_tensorflow
+        dataset = Cars3D_tensorflow(root="datasets", img_size=64)
+    # elif dataset_name == "coco":
+    #     from datasets.coco import NewCOCO
+    #     dataset = NewCOCO()
+    # elif dataset_name == "celeba":
+    #     from datasets.celeba import NewCelebA
+    #     exp = {"dataset":"celeba", "data_path": "data", "img_size": args["MODEL"]["image_size"], "batch_size": args["DATALOADER"]["batch_size"]}
+    #     dataset = NewCelebA(exp, mode="test")
     elif dataset_name.lower() == "dsprites":
         from disentanglement_lib.data.ground_truth import dsprites
         dataset = dsprites.DSprites([1, 2, 3, 4, 5])
     else:
         NotImplementedError("dataset not supported yet")
 
-    gin_bindings = [
-      "evaluation.evaluation_fn = @mig",
-      "dataset.name='auto'",
-      "evaluation.random_seed = 0",
-      "mig.num_train=1000",
-      "discretizer.discretizer_fn = @histogram_discretizer",
-      "discretizer.num_bins = 20"
-  ]
+    # For the best practice of DisLib we should use gin to pass configurations from begining to end,
+    # but for quicker adaptaton, I disable this temporally
+    # gin_bindings = [
+    #   "evaluation.evaluation_fn = @mig",
+    #   "dataset.name='auto'",
+    #   "evaluation.random_seed = 0",
+    #   "mig.num_train=1000",
+    #   "discretizer.discretizer_fn = @histogram_discretizer",
+    #   "discretizer.num_bins = 20"
+    # ]
 
     path = "disentanglement_eval/{}/".format(dataset_name)
     result_path = os.path.join(path, "metrics", "MIG")
@@ -283,13 +377,27 @@ if __name__ == "__main__":
     os.makedirs(result_path, exist_ok=True)
     os.makedirs(representation_path, exist_ok=True)
     overwrite=True
-    evaluate_disentanglement(model_dir=representation_path,
-                            output_dir=result_path,
-                            overwrite=overwrite,
-                            # gin_bindings=gin_bindings,
-                            image_size=config.data.image_size,
-                            batch_size=64,
-                            gamma=None,
-                            z_dim=None,
-                            tag="transfer90simple",
-                            config=config)
+
+    for trial in ["dim10_1", "dim10_4"]:
+      config.trial_name = trial
+      evaluate_disentanglement(model_dir=representation_path,
+                              output_dir=result_path,
+                              overwrite=overwrite,
+                              # gin_bindings=gin_bindings, # we should bring this back 
+                              image_size=config.data.image_size,
+                              batch_size=64,
+                              gamma=None,
+                              z_dim=None,
+                              tag="transfera90simple",
+                              config=config,
+                              dataset=dataset)
+
+
+if __name__ == "__main__":
+  args = parse()
+  # for config_name in ["dsprites.yaml", "smallnorb.yaml", "shapes3d.yaml"]:
+  for config_name in ["smallnorb.yaml"]:
+    for metric_name in ["beta_vae", "factor_vae", "mig", "sap", "dci"]:
+      args.config = config_name 
+      args.metric = metric_name
+      main(args)

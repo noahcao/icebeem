@@ -1,7 +1,7 @@
 # config file for transfer learning example on MNIST
 
 training:
-  batch_size: 63
+  batch_size: 128
   n_epochs: 1000
   n_iters: 5001
   ngpu: 1
@@ -12,7 +12,7 @@ training:
 data:
   dataset: "smallnorb"
   image_size: 64
-  channels: 3
+  channels: 1
   logit_transform: false
   random_flip: true
   random_state: 0
@@ -22,11 +22,11 @@ model:
   sigma_begin: 1
   sigma_end: 0.01
   num_classes: 10
-  batch_norm: false
+  batch_norm: true
   ngf: 64
   final_layer: true
   feature_size: 90
-  augment: false
+  augment: true
   positive: false
   architecture: 'simple'
 

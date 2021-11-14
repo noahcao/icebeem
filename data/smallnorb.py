@@ -177,9 +177,9 @@ class SmallNORB(data.Dataset):
             return img_left, img_right, target, info
 
         img = self._transform(self.data[index])
-        if img.shape[0] == 1:
-            # convert 1-channel images to 3-channel ones
-            img = img.repeat(3, 1, 1)
+        # if img.shape[0] == 1:
+        #     # convert 1-channel images to 3-channel ones
+        #     img = img.repeat(3, 1, 1)
         # we will use $info as factors, see the comments at this class beginning for details
         return img, (target, info)
 
